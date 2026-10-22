@@ -1,0 +1,28 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# OS artifacts
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# PDF and Report Generation Artifacts (excluded)
+make_pdf_report.py
+build_full_report.py
+generate_report_files.py
+PROJECT_REPORT.pdf
+PROJECT_REPORT.docx
+PROJECT_REPORT.html
+PROJECT_REPORT.md
+report_*.html
+.chrome_temp/
+
+# Virtual Environments
+.env
+.venv
+env/
+venv/

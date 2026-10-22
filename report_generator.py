@@ -1,0 +1,227 @@
+"""report_generator.py
+Generates an HTML report from plagiarism analysis results.
+"""
+import os
+import json
+from datetime import datetime
+from typing import Dict, Any, List
+
+
+HTML_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Plagiarism & Code Analysis Report</title>
+<style>
+  :root {{
+    --bg: #0d1117; --card: #161b22; --border: #30363d;
+    --text: #c9d1d9; --muted: #8b949e; --accent: #58a6ff;
+    --green: #3fb950; --yellow: #d29922; --red: #f85149;
+    --purple: #bc8cff; --orange: #d2a679;
+  }}
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; padding: 2rem; }}
+  h1 {{ color: var(--accent); font-size: 2rem; text-align: center; margin-bottom: 0.3rem; }}
+  .subtitle {{ text-align: center; color: var(--muted); margin-bottom: 2rem; }}
+  .card {{ background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1.5rem; margin-bottom: 1.5rem; }}
+  .card h2 {{ font-size: 1.1rem; margin-bottom: 1rem; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }}
+  .badge {{ display: inline-block; padding: 0.4rem 1rem; border-radius: 20px; font-weight: bold; font-size: 1.1rem; }}
+  .badge.high {{ background: #5c1a1a; color: var(--red); }}
+  .badge.med {{ background: #3d2e00; color: var(--yellow); }}
+  .badge.low {{ background: #1a3a1a; color: var(--green); }}
+  .score-bar-wrap {{ background: #21262d; border-radius: 8px; height: 20px; overflow: hidden; margin: 0.8rem 0; }}
+  .score-bar {{ height: 100%; border-radius: 8px; transition: width 0.5s; }}
+  table {{ width: 100%; border-collapse: collapse; font-size: 0.9rem; }}
+  th {{ background: #21262d; padding: 0.5rem 0.8rem; text-align: left; color: var(--muted); font-weight: 600; }}
+  td {{ padding: 0.5rem 0.8rem; border-bottom: 1px solid var(--border); }}
+  tr:last-child td {{ border-bottom: none; }}
+  .algo-row td:last-child {{ font-weight: bold; }}
+  .smell {{ background: #2d1e00; color: var(--orange); border-radius: 6px; padding: 0.3rem 0.7rem; margin: 0.2rem 0; font-size: 0.85rem; }}
+  .tip {{ background: #1a2d1a; color: var(--green); border-radius: 6px; padding: 0.3rem 0.7rem; margin: 0.2rem 0; font-size: 0.85rem; }}
+  .grid2 {{ display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }}
+  footer {{ text-align: center; color: var(--muted); font-size: 0.8rem; margin-top: 2rem; }}
+  .mi-bar-wrap {{ background: #21262d; border-radius: 8px; height: 12px; overflow: hidden; margin-top: 0.4rem; }}
+  .mi-bar {{ height: 100%; background: linear-gradient(90deg, var(--red), var(--yellow), var(--green)); border-radius: 8px; }}
+  .section-label {{ color: var(--purple); font-weight: 600; margin-bottom: 0.4rem; }}
+  @media(max-width:700px){{ .grid2{{grid-template-columns:1fr;}} }}
+</style>
+</head>
+<body>
+<h1>🔍 Compiler-Based Plagiarism Detector</h1>
+<p class="subtitle">Cross-Language AST &amp; Structural Analysis Report &nbsp;|&nbsp; {timestamp}</p>
+
+<!-- Files -->
+<div class="card">
+  <h2>📁 Analysed Files</h2>
+  <table>
+    <tr><th>File</th><th>Path</th><th>Language</th></tr>
+    <tr><td>File 1</td><td>{file1}</td><td>{lang1}</td></tr>
+    <tr><td>File 2</td><td>{file2}</td><td>{lang2}</td></tr>
+  </table>
+</div>
+
+<!-- Similarity Scores -->
+<div class="card">
+  <h2>📊 Similarity Analysis</h2>
+  <div style="text-align:center; margin-bottom:1rem;">
+    <span class="badge {badge_class}">{badge_text}</span>
+  </div>
+  <table>
+    <tr><th>Algorithm</th><th>Score</th><th>Visual</th></tr>
+    <tr class="algo-row">
+      <td>Jaccard (n-gram set overlap)</td>
+      <td>{jaccard:.1f}%</td>
+      <td><div class="score-bar-wrap"><div class="score-bar" style="width:{jaccard}%;background:{bar_color};"></div></div></td>
+    </tr>
+    <tr class="algo-row">
+      <td>Cosine (term-frequency vectors)</td>
+      <td>{cosine:.1f}%</td>
+      <td><div class="score-bar-wrap"><div class="score-bar" style="width:{cosine}%;background:{bar_color};"></div></div></td>
+    </tr>
+    <tr class="algo-row">
+      <td>LCS (Longest Common Subsequence)</td>
+      <td>{lcs:.1f}%</td>
+      <td><div class="score-bar-wrap"><div class="score-bar" style="width:{lcs}%;background:{bar_color};"></div></div></td>
+    </tr>
+    <tr class="algo-row" style="background:#21262d;">
+      <td><strong>Combined Weighted Score</strong></td>
+      <td><strong>{combined:.1f}%</strong></td>
+      <td><div class="score-bar-wrap"><div class="score-bar" style="width:{combined}%;background:{bar_color};"></div></div></td>
+    </tr>
+  </table>
+  <p style="margin-top:1rem; color:var(--muted); font-size:0.85rem;">{verdict}</p>
+</div>
+
+<!-- Quality Analysis -->
+<div class="grid2">
+  {quality_file1_card}
+  {quality_file2_card}
+</div>
+
+<!-- Suggestions -->
+<div class="grid2">
+  {suggestions_file1_card}
+  {suggestions_file2_card}
+</div>
+
+<footer>Generated by Compiler-Based Plagiarism Detector &nbsp;|&nbsp; {timestamp}</footer>
+</body>
+</html>"""
+
+
+QUALITY_CARD_TEMPLATE = """<div class="card">
+  <h2>{title}</h2>
+  <table>
+    <tr><th>Metric</th><th>Value</th></tr>
+    <tr><td>Lines of Code</td><td>{loc}</td></tr>
+    <tr><td>Functions</td><td>{funcs}</td></tr>
+    <tr><td>Loops</td><td>{loops}</td></tr>
+    <tr><td>Decision Points</td><td>{decisions}</td></tr>
+    <tr><td>Cyclomatic Complexity</td><td>{cc}</td></tr>
+    <tr><td>Energy Estimate</td><td>{energy} &nbsp; <em>{energy_grade}</em></td></tr>
+    <tr><td>Halstead Volume</td><td>{h_volume}</td></tr>
+    <tr><td>Halstead Difficulty</td><td>{h_diff}</td></tr>
+    <tr><td>Bug Estimate</td><td>{h_bugs}</td></tr>
+    <tr><td>Maintainability Index</td><td>{mi} — <em>{mi_grade}</em></td></tr>
+  </table>
+  <p class="section-label" style="margin-top:1rem;">Maintainability</p>
+  <div class="mi-bar-wrap"><div class="mi-bar" style="width:{mi}%;"></div></div>
+  {smells_html}
+</div>"""
+
+
+SUGGESTIONS_CARD_TEMPLATE = """<div class="card">
+  <h2>{title}</h2>
+  {tips_html}
+</div>"""
+
+
+def _badge(score: float):
+    if score >= 75:
+        return 'high', '🔴 HIGH RISK OF PLAGIARISM', '#f85149'
+    elif score >= 45:
+        return 'med', '🟡 MODERATE SIMILARITY', '#d29922'
+    else:
+        return 'low', '🟢 LOW SIMILARITY / ORIGINAL WORK', '#3fb950'
+
+
+def _verdict(score: float) -> str:
+    if score >= 75:
+        return ("Critical structural match detected. The logic, control flow, and program structure "
+                "in both files are nearly identical. It is highly likely that one file was copied from "
+                "or directly inspired by the other.")
+    elif score >= 45:
+        return ("Partial match detected. Both files share significant structural patterns "
+                "but contain unique sections. Manual code review is recommended.")
+    else:
+        return ("No significant copying found. The internal structure of both code files appears "
+                "independent and fundamentally different.")
+
+
+def _quality_card(title: str, q: Dict[str, Any]) -> str:
+    h = q.get('Halstead', {})
+    smells = q.get('Code Smells', [])
+    smells_html = ''
+    if smells:
+        smells_html = '<p class="section-label" style="margin-top:1rem;">⚠️ Code Smells</p>'
+        smells_html += ''.join(f'<div class="smell">{s}</div>' for s in smells)
+    return QUALITY_CARD_TEMPLATE.format(
+        title=title,
+        loc=q.get('Lines of Code', 0),
+        funcs=q.get('Functions', 0),
+        loops=q.get('Loops', 0),
+        decisions=q.get('Decision Points', 0),
+        cc=q.get('Cyclomatic Complexity', 0),
+        energy=q.get('Energy Estimate', 0),
+        energy_grade=q.get('Energy Grade', ''),
+        h_volume=h.get('Volume', 0),
+        h_diff=h.get('Difficulty', 0),
+        h_bugs=h.get('Bugs Estimate', 0),
+        mi=q.get('Maintainability Index', 0),
+        mi_grade=q.get('Maintainability Grade', ''),
+        smells_html=smells_html,
+    )
+
+
+def _suggestions_card(title: str, suggestions: List[str]) -> str:
+    if suggestions:
+        tips_html = ''.join(f'<div class="tip">{t}</div>' for t in suggestions)
+    else:
+        tips_html = '<div class="tip">✅ No major issues found. Code looks clean!</div>'
+    return SUGGESTIONS_CARD_TEMPLATE.format(title=title, tips_html=tips_html)
+
+
+def generate_html_report(
+    file1: str, lang1: str,
+    file2: str, lang2: str,
+    jaccard: float, cosine: float, lcs: float, combined: float,
+    quality1: Dict[str, Any], quality2: Dict[str, Any],
+    output_dir: str = '.'
+) -> str:
+    """Generate and save an HTML report. Returns the output file path."""
+    badge_class, badge_text, bar_color = _badge(combined)
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    fname = f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+    out_path = os.path.join(output_dir, fname)
+
+    html = HTML_TEMPLATE.format(
+        timestamp=timestamp,
+        file1=file1, lang1=lang1,
+        file2=file2, lang2=lang2,
+        jaccard=jaccard, cosine=cosine, lcs=lcs, combined=combined,
+        badge_class=badge_class, badge_text=badge_text, bar_color=bar_color,
+        verdict=_verdict(combined),
+        quality_file1_card=_quality_card(f'📋 Code Quality — {os.path.basename(file1)}', quality1),
+        quality_file2_card=_quality_card(f'📋 Code Quality — {os.path.basename(file2)}', quality2),
+        suggestions_file1_card=_suggestions_card(f'💡 Suggestions — {os.path.basename(file1)}', quality1.get('Suggestions', [])),
+        suggestions_file2_card=_suggestions_card(f'💡 Suggestions — {os.path.basename(file2)}', quality2.get('Suggestions', [])),
+    )
+
+    with open(out_path, 'w', encoding='utf-8') as f:
+        f.write(html)
+
+    return out_path
+
+
+__all__ = ['generate_html_report']
